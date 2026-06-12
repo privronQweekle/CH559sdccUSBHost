@@ -18,7 +18,7 @@ void main()
 {
     unsigned char s;
     initClock();
-    initUART0(400000, 1);
+    initUART0(115200, 1);
     DEBUG_OUT("Startup\n");
     resetHubDevices(0);
     resetHubDevices(1);
