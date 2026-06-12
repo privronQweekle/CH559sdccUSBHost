@@ -32,5 +32,6 @@ void main()
         processUart();
         s = checkRootHubConnections();
         pollHIDdevice();
+        pollCDCdevice();
     }
 }

@@ -500,7 +500,7 @@ unsigned char getInterfaceDescriptor(unsigned char index)
 #define REPORT_USAGE_PAGE_VENDOR	0xff00
 
 #define MAX_HID_DEVICES 8
-struct 
+struct
 {
 	unsigned char connected;
 	unsigned char rootHub;
@@ -508,6 +508,23 @@ struct
 	unsigned char endPoint;
 	unsigned long type;
 }  __xdata HIDdevice[MAX_HID_DEVICES];
+
+// CDC-ACM (USB virtual COM) device support: one per root hub.
+// Detected dynamically from the interface class during enumeration,
+// so HID and CDC devices can be mixed on the two ports.
+#define USB_DEV_CLASS_CDC_DATA 0x0A
+#define CDC_SET_LINE_CODING        0x20
+#define CDC_SET_CONTROL_LINE_STATE 0x22
+struct
+{
+	unsigned char connected;
+	unsigned char commInterface; // control interface (class 0x02), target of CDC requests
+	unsigned char endPoint;      // bulk IN endpoint number, bit 7 = next data toggle
+}  __xdata CDCdevice[ROOT_HUB_COUNT];
+
+__code unsigned char SetCDCLineCodingRequest[] = {USB_REQ_TYP_CLASS | USB_REQ_RECIP_INTERF, CDC_SET_LINE_CODING, 0x00, 0x00, 0x00, 0x00, 0x07, 0x00};
+__code unsigned char SetCDCControlLineStateRequest[] = {USB_REQ_TYP_CLASS | USB_REQ_RECIP_INTERF, CDC_SET_CONTROL_LINE_STATE, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00}; // DTR | RTS
+__code unsigned char CDCLineCoding115200[] = {0x00, 0xC2, 0x01, 0x00, 0x00, 0x00, 0x08}; // 115200 baud, 1 stop, no parity, 8 data bits
 
 struct 
 {
@@ -534,6 +551,9 @@ void resetHubDevices(unsigned char hubindex)
 	HIDdevice[hiddevice].type  = 0;
 	}
 	}
+	CDCdevice[hubindex].connected = 0;
+	CDCdevice[hubindex].commInterface = 0;
+	CDCdevice[hubindex].endPoint = 0;
 }
 
 void pollHIDdevice()
@@ -559,6 +579,63 @@ void pollHIDdevice()
 	}
 }
 
+
+// SET_LINE_CODING needs an OUT data stage, which hostCtrlTransfer does not
+// support (its write path never copies the payload into TxBuffer). Run the
+// three stages manually: SETUP (DATA0), DATA OUT (DATA1), STATUS IN (DATA1).
+unsigned char cdcSetLineCoding(unsigned char commInterface)
+{
+	unsigned char s, i;
+	fillTxBuffer(SetCDCLineCodingRequest, sizeof(SetCDCLineCodingRequest));
+	((PXUSB_SETUP_REQ)TxBuffer)->wIndexL = commInterface;
+	UH_TX_LEN = sizeof(USB_SETUP_REQ);
+	s = hostTransfer((unsigned char)(USB_PID_SETUP << 4), 0, 10000);
+	if (s != ERR_SUCCESS)
+		return s;
+	for (i = 0; i < sizeof(CDCLineCoding115200); i++)
+		TxBuffer[i] = CDCLineCoding115200[i];
+	UH_TX_LEN = sizeof(CDCLineCoding115200);
+	s = hostTransfer((unsigned char)(USB_PID_OUT << 4), bUH_R_TOG | bUH_T_TOG, 10000);
+	if (s != ERR_SUCCESS)
+		return s;
+	UH_TX_LEN = 0;
+	return hostTransfer((unsigned char)(USB_PID_IN << 4), bUH_R_TOG | bUH_T_TOG, 10000);
+}
+
+unsigned char cdcInitDevice(unsigned char rootHubIndex)
+{
+	unsigned char s;
+	s = cdcSetLineCoding(CDCdevice[rootHubIndex].commInterface);
+	DEBUG_OUT("CDC SET_LINE_CODING: %02X\n", s);
+	// Line coding is informational for pure-USB devices; don't fail on it.
+	fillTxBuffer(SetCDCControlLineStateRequest, sizeof(SetCDCControlLineStateRequest));
+	((PXUSB_SETUP_REQ)TxBuffer)->wIndexL = CDCdevice[rootHubIndex].commInterface;
+	s = hostCtrlTransfer(0, 0, 0);
+	DEBUG_OUT("CDC SET_CONTROL_LINE_STATE: %02X\n", s);
+	return s;
+}
+
+void pollCDCdevice()
+{
+	__xdata unsigned char s, hub, len;
+	for (hub = 0; hub < ROOT_HUB_COUNT; hub++)
+	{
+		if (!CDCdevice[hub].connected)
+			continue;
+		selectHubPort(hub, 0);
+		s = hostTransfer( USB_PID_IN << 4 | CDCdevice[hub].endPoint & 0x7F, CDCdevice[hub].endPoint & 0x80 ? bUH_R_TOG | bUH_T_TOG : 0, 0 );
+		if (s == ERR_SUCCESS)
+		{
+			CDCdevice[hub].endPoint ^= 0x80;
+			len = USB_RX_LEN;
+			if (len)
+			{
+				LED = !LED;
+				sendProtocolMSG(MSG_TYPE_CDC_DATA, len, 0x00, hub + 1, CDCdevice[hub].endPoint & 0x7F, RxBuffer);
+			}
+		}
+	}
+}
 
 void parseHIDDeviceReport(unsigned char __xdata *report, unsigned short length, unsigned char CurrentDevive)
 {
@@ -855,6 +932,12 @@ unsigned char initializeRootHubConnection(unsigned char rootHubIndex)
 									//DEBUG_OUT_USB_BUFFER(desc);
 									currentInterface = ((PXUSB_ITF_DESCR)desc);
 									readInterface(rootHubIndex, currentInterface);
+									if(currentInterface->bInterfaceClass == USB_DEV_CLASS_COMMUNIC)
+									{
+										// CDC control interface: remember its number, CDC
+										// class requests (line coding, DTR) target it.
+										CDCdevice[rootHubIndex].commInterface = currentInterface->bInterfaceNumber;
+									}
 									break;
 								case USB_DESCR_TYP_ENDP:
 									DEBUG_OUT("Endpoint descriptor found\n", desc[1]);
@@ -885,6 +968,18 @@ unsigned char initializeRootHubConnection(unsigned char rootHubIndex)
 											getHIDDeviceReport(hiddevice);
 										}
 									}
+									else if(currentInterface->bInterfaceClass == USB_DEV_CLASS_CDC_DATA)
+									{
+										PXUSB_ENDP_DESCR d = (PXUSB_ENDP_DESCR)desc;
+										// Register the bulk IN endpoint of the CDC data interface.
+										// Toggle (bit 7) starts at DATA0, same rationale as HID.
+										if((d->bEndpointAddress & 0x80) && (d->bmAttributes & 0x03) == 0x02)
+										{
+											CDCdevice[rootHubIndex].endPoint = d->bEndpointAddress & 0x7F;
+											CDCdevice[rootHubIndex].connected = 1;
+											DEBUG_OUT("Got bulk IN endpoint for the CDC device 0x%02x\n", d->bEndpointAddress);
+										}
+									}
 									break;
 								case USB_DESCR_TYP_HID:
 									DEBUG_OUT("HID descriptor found\n", desc[1]);
@@ -910,6 +1005,8 @@ unsigned char initializeRootHubConnection(unsigned char rootHubIndex)
 							}
 							i += desc[0];
 						}
+						if(CDCdevice[rootHubIndex].connected)
+							cdcInitDevice(rootHubIndex);
 						return ERR_SUCCESS;
 					}			
 				}

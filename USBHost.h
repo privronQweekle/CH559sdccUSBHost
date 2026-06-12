@@ -106,5 +106,6 @@ unsigned char checkRootHubConnections();
 
 void resetHubDevices(unsigned char hubindex);
 void pollHIDdevice();
+void pollCDCdevice();
 
 #endif
