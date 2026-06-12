@@ -839,7 +839,7 @@ unsigned char initializeRootHubConnection(unsigned char rootHubIndex)
 						interfaces = ((PXUSB_CFG_DESCR_LONG)receiveDataBuffer)->cfg_descr.bNumInterfaces;
 						DEBUG_OUT("Interface count: %d\n", interfaces);
 
-    					s = setUsbConfig( cfg ); 
+    					s = setUsbConfig( cfg );
 						//parse descriptors
 						total = ((PXUSB_CFG_DESCR)receiveDataBuffer)->wTotalLengthL + (((PXUSB_CFG_DESCR)receiveDataBuffer)->wTotalLengthH << 8);
 						for(i = 0; i < total; i++)
@@ -869,7 +869,15 @@ unsigned char initializeRootHubConnection(unsigned char rootHubIndex)
 												if(HIDdevice[hiddevice].connected == 0)break;
 											}
 											DEBUG_OUT("Connected device at position: %i\n", hiddevice);
-											HIDdevice[hiddevice].endPoint = d->bEndpointAddress;
+											// Bit 7 of endPoint stores the next expected data toggle.
+											// After SET_CONFIGURATION the device endpoint starts at
+											// DATA0, but bEndpointAddress has bit 7 set for IN
+											// endpoints (e.g. 0x82) which made the first poll expect
+											// DATA1. The toggle mismatch makes the host ACK-and-drop
+											// the very first report (the device dequeues it), losing
+											// the first character of the first scan after connect.
+											// Clear bit 7 so polling starts expecting DATA0.
+											HIDdevice[hiddevice].endPoint = d->bEndpointAddress & 0x7F;
 											HIDdevice[hiddevice].connected = 1;										
 											HIDdevice[hiddevice].interface = currentInterface->bInterfaceNumber;
 											HIDdevice[hiddevice].rootHub = rootHubIndex;
