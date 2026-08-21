@@ -108,4 +108,11 @@ void resetHubDevices(unsigned char hubindex);
 void pollHIDdevice();
 void pollCDCdevice();
 
+// hubPort convention used throughout: 0 = device attached directly to the
+// CH559 root port, 1..MAX_EXHUB_PORT_COUNT = downstream port N of a single
+// external hub attached to that root port. Only one hub level is supported
+// (MAX_EXHUB_LEVEL stays 1) — a hub plugged into a hub's downstream port is
+// not enumerated.
+#define HUB_PORT_DIRECT 0
+
 #endif
