@@ -98,10 +98,10 @@ void setUsbSpeed(unsigned char fullSpeed)
 
 void resetRootHubPort(unsigned char rootHubIndex)
 {
-	endpoint0Size = DEFAULT_ENDP0_SIZE; //todo what's that?                    
+	endpoint0Size = DEFAULT_ENDP0_SIZE; //todo what's that?
 	setHostUsbAddr(0);
 	setUsbSpeed(1);
-	 if (rootHubIndex == 0)    
+	 if (rootHubIndex == 0)
     {
         UHUB0_CTRL = UHUB0_CTRL & ~ bUH_LOW_SPEED | bUH_BUS_RESET;
         delay(15);
@@ -113,8 +113,21 @@ void resetRootHubPort(unsigned char rootHubIndex)
         delay(15);
         UHUB1_CTRL = UHUB1_CTRL & ~ bUH_BUS_RESET;
     }
-	delayUs(250);
-	UIF_DETECT = 0; //todo test if redundant                                       
+	// USB2.0 TRSTRCY: >=10ms recovery after reset de-assertion before the
+	// line state is trustworthy. This used to be delayUs(250) (0.25ms) —
+	// enough for a scanner's fast, clean D+ pull-up, but too short for some
+	// hubs' upstream PHY to finish settling. enableRootHubPort() (called
+	// right after this function returns, from initializeRootHubConnection()'s
+	// poll loop) does a ONE-TIME read of USB_HUB_ST's DM level bit and
+	// immediately latches it into UHUB0/1_CTRL's low-speed bit — if that read
+	// happens while the line is still transitioning out of reset/SE0, the
+	// speed gets misdetected and EVERY subsequent transfer at that root port
+	// times out with no response (ERR_USB_TRANSFER), which is exactly what
+	// hub enumeration was hitting. A post-enable delay does not fix this,
+	// since by then the wrong speed bit is already committed to hardware —
+	// the recovery time has to happen here, before that latch occurs.
+	delay(10);
+	UIF_DETECT = 0; //todo test if redundant
 }
 
 unsigned char enableRootHubPort(unsigned char rootHubIndex)
@@ -1298,18 +1311,13 @@ unsigned char initializeRootHubConnection(unsigned char rootHubIndex)
 
 		selectHubPort(rootHubIndex, HUB_PORT_DIRECT);
 		DEBUG_OUT("root hub port %i enabled\n", rootHubIndex);
-		// USB2.0 recommends >=10ms recovery after reset before the first
-		// control transfer (TRSTRCY); resetRootHubPort()'s delay(15) is the
-		// reset PULSE itself, not post-reset recovery, and enableRootHubPort()
-		// can return success within 1ms of the attach bit going high. A bare
-		// HID/CDC scanner's transceiver was fast enough to answer the very
-		// first GET_DESCRIPTOR anyway, but a hub's own MCU/upstream PHY can
-		// take noticeably longer to be ready to respond, producing a bus
-		// timeout (ERR_USB_TRANSFER, no STALL/NAK — genuinely no response)
-		// on getDeviceDescriptor() below. Extra settle time here is a no-op
-		// for a scanner (it was already past this point in time) and fixes
-		// hub enumeration without touching the shared low-level transfer
-		// primitives every device (including scanners) goes through.
+		// Extra margin before the first control transfer, on top of the
+		// real fix in resetRootHubPort() (the TRSTRCY recovery delay there
+		// is what actually prevents the speed-bit mis-latch that was
+		// causing hub enumeration to fail — see that function's comment).
+		// This one is cheap defense-in-depth for any remaining timing
+		// margin and is a no-op in practice for scanners, which already
+		// enumerate correctly with or without it.
 		delay(50);
 		s = getDeviceDescriptor();
 
