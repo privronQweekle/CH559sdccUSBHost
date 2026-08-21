@@ -148,6 +148,17 @@ unsigned char enableRootHubPort(unsigned char rootHubIndex)
 					UHUB0_CTRL |= bUH_LOW_SPEED;
 				}
 				else rootHubDevice[rootHubIndex].speed = 1;
+				// Temporary diagnostic: report the raw USB_HUB_ST byte and
+				// the speed decision just latched, right as it happens, so
+				// we can tell from the UART log whether the hub is being
+				// mis-detected as low-speed (which would explain every
+				// transfer timing out with no response).
+				{
+					unsigned char __xdata dbg[2];
+					dbg[0] = USB_HUB_ST;
+					dbg[1] = rootHubDevice[rootHubIndex].speed;
+					sendProtocolMSG(MSG_TYPE_DEBUG_SPEED, 2, rootHubIndex, 0, 0, dbg);
+				}
 			}
 			UHUB0_CTRL |= bUH_PORT_EN;
 			return ERR_SUCCESS;
@@ -1311,15 +1322,32 @@ unsigned char initializeRootHubConnection(unsigned char rootHubIndex)
 
 		selectHubPort(rootHubIndex, HUB_PORT_DIRECT);
 		DEBUG_OUT("root hub port %i enabled\n", rootHubIndex);
-		// Extra margin before the first control transfer, on top of the
-		// real fix in resetRootHubPort() (the TRSTRCY recovery delay there
-		// is what actually prevents the speed-bit mis-latch that was
-		// causing hub enumeration to fail — see that function's comment).
-		// This one is cheap defense-in-depth for any remaining timing
-		// margin and is a no-op in practice for scanners, which already
-		// enumerate correctly with or without it.
+		// Extra margin before the first control transfer (cheap
+		// defense-in-depth, no-op for scanners which already enumerate fine
+		// with or without it).
 		delay(50);
 		s = getDeviceDescriptor();
+
+		if (s != ERR_SUCCESS)
+		{
+			// USB_HUB_ST's DM/DP level sampling (see enableRootHubPort())
+			// determined full- vs low-speed from which data line has the
+			// pull-up — this is normally reliable, but was confirmed on
+			// real hardware to consistently misread a full-speed hub as
+			// low-speed (bUHS_DM_LEVEL read as 1 every single retry, not a
+			// flaky/marginal reading). A hub being genuinely low-speed is
+			// not a real-world case worth optimizing for, so if the first
+			// transfer at the detected speed times out, flip the speed bit
+			// and try once more before giving up this attempt — cheap
+			// (single extra getDeviceDescriptor()) and a no-op for the
+			// common case where detection was already correct.
+			unsigned char altSpeed = rootHubDevice[rootHubIndex].speed ? 0 : 1;
+			DEBUG_OUT("getDeviceDescriptor failed at speed=%i, retrying at speed=%i\n", rootHubDevice[rootHubIndex].speed, altSpeed);
+			rootHubDevice[rootHubIndex].speed = altSpeed;
+			setUsbSpeed(altSpeed);
+			delay(10);
+			s = getDeviceDescriptor();
+		}
 
 		if ( s == ERR_SUCCESS )
 		{
