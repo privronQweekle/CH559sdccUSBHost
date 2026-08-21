@@ -1347,6 +1347,14 @@ unsigned char initializeRootHubConnection(unsigned char rootHubIndex)
 			setUsbSpeed(altSpeed);
 			delay(10);
 			s = getDeviceDescriptor();
+			// Temporary diagnostic: confirm the fallback attempt actually
+			// ran and report whether IT succeeded or failed too.
+			{
+				unsigned char __xdata dbg2[2];
+				dbg2[0] = altSpeed;
+				dbg2[1] = s;
+				sendProtocolMSG(MSG_TYPE_DEBUG_SPEED, 2, rootHubIndex, 1, 0, dbg2);
+			}
 		}
 
 		if ( s == ERR_SUCCESS )
@@ -1408,6 +1416,23 @@ unsigned char checkRootHubConnections()
 					rootHubDevice[0].status = ROOT_DEVICE_CONNECTED;
 					DEBUG_OUT("Device at root hub %i connected\n", 0);
 					sendProtocolMSG(MSG_TYPE_CONNECTED,0, 0x01, 0x01, 0x01, 0);
+					// Temporary diagnostic: is USB_HUB_ST's attach-latch a
+					// live/settling signal, or already frozen at the very
+					// first read? Sample it every ~10ms for ~250ms, BEFORE
+					// resetRootHubPort()/enableRootHubPort() run at all, to
+					// see whether the value the enumeration code later reads
+					// changes over time or is stuck from the moment
+					// UIF_DETECT first fired.
+					{
+						unsigned char __xdata samples[25];
+						unsigned char si;
+						for (si = 0; si < 25; si++)
+						{
+							samples[si] = USB_HUB_ST;
+							delay(10);
+						}
+						sendProtocolMSG(MSG_TYPE_DEBUG_SPEED, 25, 0, 2, 0, samples);
+					}
 					s = initializeRootHubConnection(0);
 				}
 			}
