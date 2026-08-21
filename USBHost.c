@@ -21,7 +21,16 @@ __code unsigned char  GetHIDReport[] = {USB_REQ_TYP_IN | USB_REQ_RECIP_INTERF, U
 // Hub class requests (USB 2.0 spec table 11-16). wValueL/wIndexL are
 // overwritten per-call (feature selector, port number) before each transfer;
 // the templates only fix bRequestType/bRequest/wLength.
-__code unsigned char HubGetHubDescriptorRequest[] = {HUB_GET_HUB_DESCRIPTOR, USB_GET_DESCRIPTOR, 0x00, USB_DESCR_TYP_HUB, 0x00, 0x00, sizeof(USB_HUB_DESCR), 0x00};
+// NOTE: CH559.h defines two confusingly similarly-named constant families —
+// HUB_GET_HUB_DESCRIPTOR/HUB_GET_PORT_STATUS/HUB_SET_PORT_FEATURE/
+// HUB_CLEAR_PORT_FEATURE (under "USB request TYPE for hub class request",
+// i.e. the bmRequestType byte: 0xA0/0xA3/0x23/0x23) are NOT bRequest codes.
+// The actual bRequest codes are the shorter HUB_GET_DESCRIPTOR(0x06)/
+// HUB_GET_STATUS(0x00)/HUB_SET_FEATURE(0x03)/HUB_CLEAR_FEATURE(0x01) family
+// ("USB hub class request CODE"). An earlier version of this file had the
+// two swapped, which produced malformed setup packets and made every hub
+// enumeration fail with ERR_USB_TRANSFER.
+__code unsigned char HubGetHubDescriptorRequest[] = {HUB_GET_HUB_DESCRIPTOR, HUB_GET_DESCRIPTOR, 0x00, USB_DESCR_TYP_HUB, 0x00, 0x00, sizeof(USB_HUB_DESCR), 0x00};
 __code unsigned char HubGetPortStatusRequest[] = {HUB_GET_PORT_STATUS, HUB_GET_STATUS, 0x00, 0x00, 0 /*port*/, 0x00, 0x04, 0x00};
 __code unsigned char HubSetPortFeatureRequest[] = {HUB_SET_PORT_FEATURE, HUB_SET_FEATURE, 0 /*feature*/, 0x00, 0 /*port*/, 0x00, 0x00, 0x00};
 __code unsigned char HubClearPortFeatureRequest[] = {HUB_CLEAR_PORT_FEATURE, HUB_CLEAR_FEATURE, 0 /*feature*/, 0x00, 0 /*port*/, 0x00, 0x00, 0x00};
@@ -1289,6 +1298,19 @@ unsigned char initializeRootHubConnection(unsigned char rootHubIndex)
 
 		selectHubPort(rootHubIndex, HUB_PORT_DIRECT);
 		DEBUG_OUT("root hub port %i enabled\n", rootHubIndex);
+		// USB2.0 recommends >=10ms recovery after reset before the first
+		// control transfer (TRSTRCY); resetRootHubPort()'s delay(15) is the
+		// reset PULSE itself, not post-reset recovery, and enableRootHubPort()
+		// can return success within 1ms of the attach bit going high. A bare
+		// HID/CDC scanner's transceiver was fast enough to answer the very
+		// first GET_DESCRIPTOR anyway, but a hub's own MCU/upstream PHY can
+		// take noticeably longer to be ready to respond, producing a bus
+		// timeout (ERR_USB_TRANSFER, no STALL/NAK — genuinely no response)
+		// on getDeviceDescriptor() below. Extra settle time here is a no-op
+		// for a scanner (it was already past this point in time) and fixes
+		// hub enumeration without touching the shared low-level transfer
+		// primitives every device (including scanners) goes through.
+		delay(50);
 		s = getDeviceDescriptor();
 
 		if ( s == ERR_SUCCESS )
