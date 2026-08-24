@@ -26,6 +26,12 @@
 // (nearest integer reload lands at -7% baud error, well outside UART
 // tolerance; 230400 lands at +0.16%, same as the already-reliable 115200).
 #define CAP_BAUD_230400         0x01 // firmware can switch UART0 to 230400 on request
+// 300000 divides FREQ_SYS/8 (6,000,000) exactly — 0.00% reload error,
+// better than 230400's. Both 230400 and 300000 confirmed working
+// (switch, query, and switch-back all round-tripped cleanly) on real
+// hardware before this rate was added; 300000 itself still needs its own
+// hardware confirmation.
+#define CAP_BAUD_300000         0x02 // firmware can switch UART0 to 300000 on request
 
 void processUart();
 // Sends the version/capability reply if the last received command was a

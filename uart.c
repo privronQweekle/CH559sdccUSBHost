@@ -25,6 +25,7 @@ static uint8_t __xdata pendingBaudRateCode = 0;
 // divisor — only values this firmware explicitly recognizes take effect.
 #define BAUD_CODE_115200  0
 #define BAUD_CODE_230400  1
+#define BAUD_CODE_300000  2
 
 void processUart(){
     while(RI){
@@ -76,7 +77,7 @@ void maybeSendVersionReply(){
     versionQueryPending = 0;
     payload[0] = PROTOCOL_VERSION_MAJOR;
     payload[1] = PROTOCOL_VERSION_MINOR;
-    payload[2] = CAP_BAUD_230400;
+    payload[2] = CAP_BAUD_230400 | CAP_BAUD_300000;
     sendProtocolMSG(MSG_TYPE_VERSION, 3, 0, 0, 0, payload);
 }
 
@@ -91,6 +92,7 @@ void maybeApplyBaudSwitch(){
     switch (rateCode) {
         case BAUD_CODE_115200: newBaud = 115200; break;
         case BAUD_CODE_230400: newBaud = 230400; break;
+        case BAUD_CODE_300000: newBaud = 300000; break;
         default: return; // unrecognized code: ignore, stay at current baud
     }
 
@@ -102,10 +104,10 @@ void maybeApplyBaudSwitch(){
     sendProtocolMSG(MSG_TYPE_VERSION, 1, 1 /* type=1: this is a switch ack, not a capability reply */, 0, 0, ack);
     // Let the stop bit of the last ack byte finish, AND give margin against
     // the other side starting its next transmission (e.g. a 'v' query)
-    // almost immediately after seeing the ack — 230400's bit period is 2x
-    // shorter than 115200's, so the same wall-clock margin buys less
-    // protection there. 500us covers a full byte+idle gap at either rate
-    // with room to spare.
+    // almost immediately after seeing the ack — a higher target baud has a
+    // shorter bit period, so the same wall-clock margin buys less
+    // protection there. 500us covers a full byte+idle gap at any supported
+    // rate up to 300000 (~3.3us/bit) with plenty of room to spare.
     delayUs(500);
     initUART0(newBaud, 0); // alt=0: pins already configured at boot, only re-derive TH1/TL1
 }
