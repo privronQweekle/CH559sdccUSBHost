@@ -21,7 +21,11 @@
 #define PROTOCOL_VERSION_MAJOR  1
 #define PROTOCOL_VERSION_MINOR  0
 // Capability bit flags, sent as the MSG_TYPE_VERSION payload's 3rd byte.
-#define CAP_BAUD_460800         0x01 // firmware can switch UART0 to 460800 on request
+// Originally targeted 460800, but real hardware testing found it has no
+// achievable low-error Timer1 reload value at this chip's FREQ_SYS=48MHz
+// (nearest integer reload lands at -7% baud error, well outside UART
+// tolerance; 230400 lands at +0.16%, same as the already-reliable 115200).
+#define CAP_BAUD_230400         0x01 // firmware can switch UART0 to 230400 on request
 
 void processUart();
 // Sends the version/capability reply if the last received command was a
