@@ -30,6 +30,7 @@ void initClock()
 void initUART0(unsigned long baud, int alt)
 {
 	unsigned long x;
+	unsigned char reload;
 	if(alt)
 	{
 		PORT_CFG |= bP0_OC;
@@ -46,10 +47,27 @@ void initUART0(unsigned long baud, int alt)
     //TCLK = 0;
     PCON |= SMOD;
     x = (((unsigned long)FREQ_SYS / 8) / baud + 1) / 2;
+    reload = (256 - x) & 255;
 
     TMOD = TMOD & ~ bT1_GATE & ~ bT1_CT & ~ MASK_T1_MOD | bT1_M1;
     T2MOD = T2MOD | bTMR_CLK | bT1_CLK;
-    TH1 = (256 - x) & 255;
+    // Timer1 mode 2 (8-bit auto-reload): TH1 only re-latches into the live
+    // TL1 count on overflow, not immediately on write. Called once at boot
+    // this doesn't matter (TL1 starts at 0 either way), but called again at
+    // runtime to switch baud rate, a bare TH1 write leaves TL1 finishing out
+    // whatever count it was already mid-way through at the OLD rate before
+    // the new reload value takes effect — an unpredictable partial period at
+    // a rate neither side expects. Stop the timer, force both TH1 and TL1 to
+    // the new reload value together, then restart, so the very next tick is
+    // already at the new rate with no ambiguous transition period.
+    TR1 = 0;
+    TH1 = reload;
+    TL1 = reload;
+    // Clear any half-received byte's state before resuming: RI must be
+    // explicitly cleared by software (see CH559.h), and a stale set flag or
+    // partially-shifted-in bit from just before the switch could otherwise
+    // be misread as the start of the first post-switch byte.
+    RI = 0;
     TR1 = 1;
 	TI = 1;
 }

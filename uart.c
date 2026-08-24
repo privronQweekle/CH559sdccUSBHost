@@ -100,11 +100,14 @@ void maybeApplyBaudSwitch(){
     // sendProtocolMSG() returns here the ack is physically on the wire.
     ack[0] = rateCode;
     sendProtocolMSG(MSG_TYPE_VERSION, 1, 1 /* type=1: this is a switch ack, not a capability reply */, 0, 0, ack);
-    // Let the stop bit of the last ack byte finish before changing the
-    // timer reload value that defines bit timing — delayUs(200) is ~2.3
-    // bit periods at 115200 baud, comfortably more than one stop bit.
-    delayUs(200);
-    initUART0(newBaud, 0); // alt=0: pins already configured at boot, only re-derive TH1
+    // Let the stop bit of the last ack byte finish, AND give margin against
+    // the other side starting its next transmission (e.g. a 'v' query)
+    // almost immediately after seeing the ack — 460800's bit period is 4x
+    // shorter than 115200's, so the same wall-clock margin buys much less
+    // protection there. 500us covers a full byte+idle gap at either rate
+    // with room to spare.
+    delayUs(500);
+    initUART0(newBaud, 0); // alt=0: pins already configured at boot, only re-derive TH1/TL1
 }
 
 void sendProtocolMSG(unsigned char msgtype, unsigned short length, unsigned char type, unsigned char device, unsigned char endpoint, unsigned char __xdata *msgbuffer){
