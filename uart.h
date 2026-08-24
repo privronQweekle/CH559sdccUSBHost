@@ -10,8 +10,31 @@
 #define MSG_TYPE_HID_INFO       0x07
 #define MSG_TYPE_STARTUP        0x08
 #define MSG_TYPE_CDC_DATA       0x09
+#define MSG_TYPE_VERSION        0x0A
+
+// Protocol/capability version this firmware speaks. Bump PROTOCOL_VERSION
+// whenever the UART frame format or command set changes in a way an ESP32-
+// side consumer needs to know about (e.g. new baud rate support). Firmware
+// that doesn't understand the version query (anything before this feature)
+// never sends MSG_TYPE_VERSION at all — its absence within a timeout is
+// itself the "no, I don't support this" signal on the ESP32 side.
+#define PROTOCOL_VERSION_MAJOR  1
+#define PROTOCOL_VERSION_MINOR  0
+// Capability bit flags, sent as the MSG_TYPE_VERSION payload's 3rd byte.
+#define CAP_BAUD_460800         0x01 // firmware can switch UART0 to 460800 on request
 
 void processUart();
+// Sends the version/capability reply if the last received command was a
+// version query (see processUart()'s handling of the 0xFE 'V' query).
+// No-op if no query is pending.
+void maybeSendVersionReply();
+// Applies a pending baud-rate switch requested via the 0xFE 'B' <rate> '\n'
+// command (see processUart()), if any. Must be called from the main loop
+// AFTER maybeSendVersionReply()/any other pending UART output for this
+// iteration, since it reconfigures UART0's speed and anything queued
+// before the switch but not yet physically transmitted would be corrupted
+// by the speed change mid-byte.
+void maybeApplyBaudSwitch();
 void sendHidPollMSG(unsigned char msgtype, unsigned short length, unsigned char type, unsigned char device, unsigned char endpoint, unsigned char __xdata *msgbuffer,unsigned char idVendorL,unsigned char idVendorH,unsigned char idProductL,unsigned char idProductH);
 void sendProtocolMSG(unsigned char msgtype, unsigned short length, unsigned char type, unsigned char device, unsigned char endpoint, unsigned char __xdata *msgbuffer);
 

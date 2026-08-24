@@ -30,6 +30,8 @@ void main()
         if(!(P4_IN & (1 << 6)))
             runBootloader();
         processUart();
+        maybeSendVersionReply();
+        maybeApplyBaudSwitch();
         s = checkRootHubConnections();
         pollHIDdevice();
         pollCDCdevice();
