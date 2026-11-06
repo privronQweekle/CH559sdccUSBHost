@@ -570,9 +570,17 @@ void pollHIDdevice()
 			len = USB_RX_LEN;
 			if ( len )
 			{		
-				LED = !LED;	
+				LED = !LED;
 				//DEBUG_OUT("HID %lu, %i data %i : ", HIDdevice[hiddevice].type, hiddevice, HIDdevice[hiddevice].endPoint & 0x7F);
-				sendHidPollMSG(MSG_TYPE_DEVICE_POLL,len, HIDdevice[hiddevice].type, hiddevice, HIDdevice[hiddevice].endPoint & 0x7F, RxBuffer,VendorProductID[HIDdevice[hiddevice].rootHub].idVendorL,VendorProductID[HIDdevice[hiddevice].rootHub].idVendorH,VendorProductID[HIDdevice[hiddevice].rootHub].idProductL,VendorProductID[HIDdevice[hiddevice].rootHub].idProductH);
+				// `device` carries the physical root port (rootHub+1: 1 or
+				// 2), matching the convention CDC_DATA/CONNECTED/DISCONNECTED
+				// already use — NOT the HIDdevice[] slot index (hiddevice),
+				// which depends on connection order/history and can't be
+				// mapped back to a physical port by a UART-side consumer.
+				// A single-scanner module still always sends device=1 here
+				// (rootHub 0 -> 0+1), staying compatible with ESP32-side
+				// code that assumes a lone scanner is "scanner A".
+				sendHidPollMSG(MSG_TYPE_DEVICE_POLL,len, HIDdevice[hiddevice].type, HIDdevice[hiddevice].rootHub + 1, HIDdevice[hiddevice].endPoint & 0x7F, RxBuffer,VendorProductID[HIDdevice[hiddevice].rootHub].idVendorL,VendorProductID[HIDdevice[hiddevice].rootHub].idVendorH,VendorProductID[HIDdevice[hiddevice].rootHub].idProductL,VendorProductID[HIDdevice[hiddevice].rootHub].idProductH);
 			}
 		}
 		}
