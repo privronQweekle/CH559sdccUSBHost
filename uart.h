@@ -27,10 +27,11 @@
 // tolerance; 230400 lands at +0.16%, same as the already-reliable 115200).
 #define CAP_BAUD_230400         0x01 // firmware can switch UART0 to 230400 on request
 // 300000 divides FREQ_SYS/8 (6,000,000) exactly — 0.00% reload error,
-// better than 230400's. Both 230400 and 300000 confirmed working
-// (switch, query, and switch-back all round-tripped cleanly) on real
-// hardware before this rate was added; 300000 itself still needs its own
-// hardware confirmation.
+// better than 230400's. Both rates confirmed on real hardware (2026-11-06,
+// single-port v1 module driven by the QGate ESP32-S3 on GPIO43/44, see
+// qgate-esp32-2/tools/ch559_baud_test): switch, 50 version queries and
+// switch-back round-tripped cleanly 3 runs out of 3 at each rate, and real
+// scanner HID frames arrived complete and uncorrupted at 300000.
 #define CAP_BAUD_300000         0x02 // firmware can switch UART0 to 300000 on request
 
 void processUart();
