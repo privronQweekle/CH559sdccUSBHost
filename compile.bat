@@ -30,5 +30,7 @@ del *.rst
 del *.sym
 
 
-Rem This tool flashes the bin file directly to the ch559 chip, you need to install the libusb-win32 driver with the zadig( https://zadig.akeo.ie/ ) tool so the tool can access the usb device
-chflasher.exe %project_name%.bin
+Rem Flashes the bin file to the CH559 (libusb-win32 driver via Zadig, https://zadig.akeo.ie/).
+Rem chflasher_fixed.py, not chflasher.exe: the original tool erases only 11 KB and
+Rem silently corrupts the tail of any larger image on a re-flash.
+python chflasher_fixed.py %project_name%.bin
