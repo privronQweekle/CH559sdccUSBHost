@@ -53,6 +53,13 @@ def main():
         die('image too small, wrong file?')
     if len(image) > APP_LIMIT:
         die('image larger than the application area')
+    # The bootloader programs and compares in 8-byte units: a last packet
+    # whose length is not a multiple of 8 gets compared against zero padding
+    # and fails verify. Pad with 0xFF, which leaves erased flash unchanged.
+    # (This is the legitimate case the original tool papered over by
+    # accepting 0xfe for every packet, which also hid real mismatches.)
+    if len(image) % 8:
+        image += b'\xff' * (8 - len(image) % 8)
 
     dev = usb.core.find(idVendor=0x4348, idProduct=0x55e0)
     if dev is None:
