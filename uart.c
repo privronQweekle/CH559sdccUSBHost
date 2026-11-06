@@ -28,10 +28,26 @@ static uint8_t __xdata pendingBaudRateCode = 0;
 #define BAUD_CODE_300000  2
 
 void processUart(){
+    uint8_t c;
     while(RI){
             RI=0;
-            uartRxBuff[rxPos] = SBUF;
-            if (uartRxBuff[rxPos]=='\n' || rxPos >= 64){
+            c = SBUF;
+            // Line longer than the buffer: drop it whole, resync on the next
+            // '\n'. The previous code stored the byte BEFORE checking the
+            // bound, so the 65th byte of an unterminated line landed one past
+            // the end of uartRxBuff, on whatever xdata the linker placed next.
+            // In the 0a10266 build that was maybeSendVersionReply()'s scratch
+            // payload[0] (harmless, rewritten before use), but it depended on
+            // link order, and the truncated 64-byte chunk was then parsed as
+            // a command. Line noise or bytes sent at the wrong baud rate (e.g.
+            // a 300000 probe seen by a module still at 115200) produce exactly
+            // such unterminated runs.
+            if (rxPos >= sizeof(uartRxBuff)) {
+                if (c == '\n') rxPos = 0;
+                continue;
+            }
+            uartRxBuff[rxPos] = c;
+            if (c == '\n'){
                 // Version query: 0xFE 'V' '\n' (3 bytes incl. terminator).
                 // Checked BEFORE the debug hex-dump/echo below so a query
                 // never gets echoed back — a genuine ESP32-side consumer
